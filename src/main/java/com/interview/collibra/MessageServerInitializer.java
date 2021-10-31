@@ -18,8 +18,7 @@ public class MessageServerInitializer {
 
     @EventListener(ApplicationReadyEvent.class)
     public void startSocket() throws IOException {
-        messageSErver.init();
-        messageSErver.listenToMessages();
+        messageSErver.start();
     }
 
     @EventListener(ContextClosedEvent.class)

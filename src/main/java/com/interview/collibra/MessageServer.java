@@ -1,93 +1,120 @@
 package com.interview.collibra;
 
+import com.google.common.util.concurrent.SimpleTimeLimiter;
+import com.google.common.util.concurrent.TimeLimiter;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.text.MessageFormat;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 
 @Service
 @Slf4j
 public class MessageServer {
 
-    public static final String FAREWELL_FORMAT_PATTERN = "BYE {0}, WE SPOKE FOR {1} MS";
-    public static final String UNRECOGNIZABLE_COMMAND_MESSAGE = "SORRY, I DID NOT UNDERSTAND THAT";
-    public static final String INITIAL_MESSAGE_FORMAT_PATTERN = "HI, I AM {0}";
-    public static final int SESSION_TIMEOUT = 30;
-    public static final String TERMINATION_COMMAND = "BYE MATE!";
-    public static final String GREETING_MESSAGE_PATTERN = "HI {0}";
-    public static final String CLIENT_GREETING_MESSAGE = "HI, I AM ";
+    public static final int SESSION_TIMEOUT_SECONDS = 30;
+    private final MessagePrinter messagePrinter;
+    private final TaskExecutor taskExecutor;
+    private final TaskScheduler taskScheduler;
     private ServerSocket serverSocket;
-    private Socket clientSocket;
-    private PrintWriter out;
-    private BufferedReader in;
-    private Instant timeOfLastMessage;
-    private Instant timeOfSessionStart;
+
+
+    volatile private ClientSession clientSession;
+    volatile private Instant timeOfLastMessage;
     private String clientName;
 
-    public void init() throws IOException {
+    public MessageServer(TaskExecutor taskExecutor, MessagePrinter messagePrinter, TaskScheduler taskScheduler) {
+        this.taskExecutor = taskExecutor;
+        this.messagePrinter = messagePrinter;
+        this.taskScheduler = taskScheduler;
+    }
+
+    public void start() throws IOException {
         serverSocket = new ServerSocket(5000);
-        clientSocket = serverSocket.accept();
-        timeOfSessionStart = Instant.now();
-        out = new PrintWriter(clientSocket.getOutputStream(), true);
-        in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-        sendMessage(MessageFormat.format(INITIAL_MESSAGE_FORMAT_PATTERN, UUID.randomUUID()));
+        startClientSessionAsync();
+    }
+
+    private void startClientSessionAsync() {
+        taskExecutor.execute(() -> {
+            initClientSession();
+            startSessionTimeoutListener();
+            listenForMessages();
+        });
+    }
+
+    @SneakyThrows
+    private void initClientSession() {
+        Socket clientSocket = serverSocket.accept();
+        clientSession = new ClientSession(clientSocket);
+        final String message = messagePrinter.getInitialMessage(clientSession.getId());
+        sendMessage(message);
+    }
+
+
+    @SneakyThrows
+    private void listenForMessages() {
+        String message;
+        while (clientSession != null && (message = clientSession.read()) != null) {
+            timeOfLastMessage = Instant.now();
+            log.info("[Server] <- {}", message);
+            respondClientMessage(message);
+        }
+    }
+
+    private void respondClientMessage(String message) throws IOException {
+        final Command command = CommandRecognizer.recognize(message);
+        switch (command) {
+            case CLIENT_GREETING: {
+                clientName = message.split(CommandRecognizer.CLIENT_GREETING_MESSAGE)[1];
+                String responseMessage = messagePrinter.getGreetingMessage(clientName);
+                sendMessage(responseMessage);
+                break;
+            }
+            case UNKNOWN: {
+                String responseMessage = messagePrinter.getUnrecognizedCommandMessage();
+                sendMessage(responseMessage);
+                break;
+            }
+            case TERMINATION: {
+                terminateClientSession();
+                startClientSessionAsync();
+                break;
+            }
+
+        }
+    }
+
+
+    private void startSessionTimeoutListener() {
+        taskScheduler.scheduleAtFixedRate(() -> {
+            if (clientSession != null) {
+                final Duration durationFromLastMessage = Duration.between(timeOfLastMessage, Instant.now());
+                if ((durationFromLastMessage.getSeconds() > SESSION_TIMEOUT_SECONDS)) {
+                    terminateClientSession();
+                    startClientSessionAsync();
+                }
+            }
+        }, Duration.ofMillis(500));
+    }
+
+    @SneakyThrows
+    private void terminateClientSession(){
+        String responseMessage = messagePrinter.getFarewellMessage(clientName, clientSession.getStartTime());
+        sendMessage(responseMessage);
+        closeClient();
     }
 
     public void sendMessage(String message) {
         log.info("[Server] -> {}", message);
-        out.println(message);
+        clientSession.write(message);
     }
-
-
-    @Async
-    public void listenToMessages() throws IOException {
-        String inputLine;
-        while (in != null & (inputLine = in.readLine()) != null) {
-            timeOfLastMessage = Instant.now();
-            log.info("[Server] <- {}", inputLine);
-            if (inputLine.startsWith(CLIENT_GREETING_MESSAGE)) {
-                clientName = inputLine.split(CLIENT_GREETING_MESSAGE)[1];
-                sendMessage(MessageFormat.format(GREETING_MESSAGE_PATTERN, clientName));
-                continue;
-            }
-            if (TERMINATION_COMMAND.equals(inputLine)) {
-                terminateClientSession();
-                continue;
-            }
-            sendMessage(UNRECOGNIZABLE_COMMAND_MESSAGE);
-        }
-    }
-
-    @Scheduled(fixedRate = 1, timeUnit = TimeUnit.SECONDS)
-    public void listenForSessionTimeout() throws IOException {
-        if (clientSocket != null && !clientSocket.isClosed()) {
-            final Duration durationFromLastMessage = Duration.between(timeOfLastMessage, Instant.now());
-            if ((durationFromLastMessage.getSeconds() > SESSION_TIMEOUT)) {
-                terminateClientSession();
-            }
-        }
-    }
-
-    private void terminateClientSession() throws IOException {
-        final Duration sessionDuration = Duration.between(timeOfSessionStart, Instant.now());
-        String farewellMessage = MessageFormat.format(FAREWELL_FORMAT_PATTERN, clientName, sessionDuration.toMillis());
-        sendMessage(farewellMessage);
-        closeClient();
-
-    }
-
 
     public void stop() throws IOException {
         closeClient();
@@ -95,12 +122,12 @@ public class MessageServer {
     }
 
     private void closeClient() throws IOException {
-        clientSocket.close();
-        out.close();
+        clientSession.close();
+        clientSession = null;
+        clientName = null;
     }
 
     private void closeServer() throws IOException {
-        in.close();
         serverSocket.close();
     }
 }
