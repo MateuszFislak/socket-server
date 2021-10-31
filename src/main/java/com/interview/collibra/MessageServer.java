@@ -1,5 +1,6 @@
 package com.interview.collibra;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -10,19 +11,23 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.text.MessageFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Service
+@Slf4j
 public class MessageServer {
 
-    public static final String FAREWELL_MESSAGE_PATTERN = "BYE %s, WE SPOKE FOR %s MS";
+    public static final String FAREWELL_FORMAT_PATTERN = "BYE {0}, WE SPOKE FOR {1} MS";
     public static final String UNRECOGNIZABLE_COMMAND_MESSAGE = "SORRY, I DID NOT UNDERSTAND THAT";
-    public static final String INITIAL_MESSAGE_PATTERN = "HI, I AM %s";
+    public static final String INITIAL_MESSAGE_FORMAT_PATTERN = "HI, I AM {0}";
     public static final int SESSION_TIMEOUT = 30;
     public static final String TERMINATION_COMMAND = "BYE MATE!";
+    public static final String GREETING_MESSAGE_PATTERN = "HI {0}";
+    public static final String CLIENT_GREETING_MESSAGE = "HI, I AM ";
     private ServerSocket serverSocket;
     private Socket clientSocket;
     private PrintWriter out;
@@ -37,11 +42,11 @@ public class MessageServer {
         timeOfSessionStart = Instant.now();
         out = new PrintWriter(clientSocket.getOutputStream(), true);
         in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-        sendMessage(String.format(INITIAL_MESSAGE_PATTERN, UUID.randomUUID()));
+        sendMessage(MessageFormat.format(INITIAL_MESSAGE_FORMAT_PATTERN, UUID.randomUUID()));
     }
 
     public void sendMessage(String message) {
-        System.out.printf("[Server] -> %s%n", message);
+        log.info("[Server] -> {}", message);
         out.println(message);
     }
 
@@ -51,10 +56,10 @@ public class MessageServer {
         String inputLine;
         while (in != null & (inputLine = in.readLine()) != null) {
             timeOfLastMessage = Instant.now();
-            System.out.printf("[Server] <- %s%n", inputLine);
-            if (inputLine.startsWith("HI, I AM ")) {
-                clientName = inputLine.split("HI, I AM ")[1];
-                sendMessage(String.format("HI %s", clientName));
+            log.info("[Server] <- {}", inputLine);
+            if (inputLine.startsWith(CLIENT_GREETING_MESSAGE)) {
+                clientName = inputLine.split(CLIENT_GREETING_MESSAGE)[1];
+                sendMessage(MessageFormat.format(GREETING_MESSAGE_PATTERN, clientName));
                 continue;
             }
             if (TERMINATION_COMMAND.equals(inputLine)) {
@@ -77,7 +82,7 @@ public class MessageServer {
 
     private void terminateClientSession() throws IOException {
         final Duration sessionDuration = Duration.between(timeOfSessionStart, Instant.now());
-        String farewellMessage = String.format(FAREWELL_MESSAGE_PATTERN, clientName, sessionDuration.toMillis());
+        String farewellMessage = MessageFormat.format(FAREWELL_FORMAT_PATTERN, clientName, sessionDuration.toMillis());
         sendMessage(farewellMessage);
         closeClient();
 
