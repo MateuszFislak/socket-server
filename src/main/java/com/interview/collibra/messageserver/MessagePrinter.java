@@ -1,4 +1,4 @@
-package com.interview.collibra;
+package com.interview.collibra.messageserver;
 
 import org.springframework.stereotype.Service;
 

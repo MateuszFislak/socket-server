@@ -1,4 +1,6 @@
-package com.interview.collibra;
+package com.interview.collibra.messageserver;
+
+import com.interview.collibra.messageserver.model.Command;
 
 public class CommandRecognizer {
 

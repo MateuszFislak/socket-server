@@ -1,5 +1,6 @@
-package com.interview.collibra;
+package com.interview.collibra.messageserver.config;
 
+import com.interview.collibra.messageserver.MessageServer;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
