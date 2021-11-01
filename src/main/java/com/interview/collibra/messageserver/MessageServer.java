@@ -31,7 +31,7 @@ public class MessageServer {
     }
 
     public void start() throws IOException {
-        serverSocket = new ServerSocket(5000);
+        serverSocket = new ServerSocket(50000);
         beginClientSessionAsync();
     }
 
