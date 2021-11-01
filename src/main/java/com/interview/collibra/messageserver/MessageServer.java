@@ -3,6 +3,7 @@ package com.interview.collibra.messageserver;
 import com.interview.collibra.messageserver.model.ClientSession;
 import com.interview.collibra.messageserver.model.Command;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.*;
 
 @Service
@@ -19,15 +21,19 @@ public class MessageServer {
 
     public static final int SESSION_TIMEOUT_SECONDS = 30;
     private final MessagePrinter messagePrinter;
+    private final CommandRecognizer commandRecognizer;
     private final AsyncTaskExecutor asyncTaskExecutor;
+    private final GraphService graphService;
     private ServerSocket serverSocket;
     private ClientSession clientSession;
     private String clientName;
 
     public MessageServer(MessagePrinter messagePrinter,
-                         @Qualifier("messageServerTaskExecutor") AsyncTaskExecutor asyncTaskExecutor) {
+                         CommandRecognizer commandRecognizer, @Qualifier("messageServerTaskExecutor") AsyncTaskExecutor asyncTaskExecutor, GraphService graphService) {
         this.messagePrinter = messagePrinter;
+        this.commandRecognizer = commandRecognizer;
         this.asyncTaskExecutor = asyncTaskExecutor;
+        this.graphService = graphService;
     }
 
     public void start() throws IOException {
@@ -71,17 +77,62 @@ public class MessageServer {
     }
 
     private void respondClientMessage(String message) {
-        final Command command = CommandRecognizer.recognize(message);
+        final Pair<Command, List<String>> commandWithParams = commandRecognizer.recognize(message);
+        final Command command = commandWithParams.getLeft();
+        final List<String> params = commandWithParams.getRight();
+
         switch (command) {
             case CLIENT_GREETING: {
-                clientName = message.split(CommandRecognizer.CLIENT_GREETING_MESSAGE)[1];
+                clientName = params.get(0);
                 String responseMessage = messagePrinter.getGreetingMessage(clientName);
                 sendMessage(responseMessage);
                 break;
             }
+            case ADD_NODE: {
+                final String nodeName = params.get(0);
+                final boolean success = graphService.addNode(nodeName);
+                if (success) {
+                    sendMessage(messagePrinter.NODE_ADDED);
+                }else{
+                    sendMessage(messagePrinter.NODE_EXISTS);
+                }
+                break;
+            }
+            case ADD_EDGE: {
+                final String firstEdge = params.get(0);
+                final String secondEdge = params.get(1);
+                final Integer weight = Integer.valueOf(params.get(2));
+                final boolean success = graphService.addEdge(firstEdge, secondEdge, weight);
+                if (success) {
+                    sendMessage(messagePrinter.EDGE_ADDED);
+                }else{
+                    sendMessage(messagePrinter.NODE_NOT_FOUND);
+                }
+                break;
+            }
+            case REMOVE_NODE: {
+                final String nodeName = params.get(0);
+                final boolean success = graphService.removeNode(nodeName);
+                if (success) {
+                    sendMessage(messagePrinter.NODE_REMOVED);
+                }else{
+                    sendMessage(messagePrinter.NODE_NOT_FOUND);
+                }
+                break;
+            }
+            case REMOVE_EDGE: {
+                final String firstEdge = params.get(0);
+                final String secondEdge = params.get(1);
+                final boolean success = graphService.removeEdge(firstEdge, secondEdge);
+                if (success) {
+                    sendMessage(messagePrinter.EDGE_REMOVED);
+                }else{
+                    sendMessage(messagePrinter.NODE_NOT_FOUND);
+                }
+                break;
+            }
             case UNKNOWN: {
-                String responseMessage = messagePrinter.getUnrecognizedCommandMessage();
-                sendMessage(responseMessage);
+                sendMessage(messagePrinter.UNRECOGNIZABLE_COMMAND_MESSAGE);
                 break;
             }
             case TERMINATION: {
