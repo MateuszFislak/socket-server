@@ -40,8 +40,4 @@ public class ClientSession {
     public String read() throws IOException {
         return inputStream.readLine();
     }
-
-    public boolean isClosed() {
-        return socket.isClosed();
-    }
 }

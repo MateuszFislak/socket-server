@@ -1,6 +1,6 @@
 package com.interview.collibra.messageserver;
 
-import com.interview.collibra.messageserver.model.Command;
+import com.interview.collibra.messageserver.command.Command;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.stereotype.Service;
 
@@ -15,13 +15,13 @@ import java.util.regex.Pattern;
 public class CommandRecognizer {
 
     private final Map<Command, Pattern> patterns = Map.of(
-            Command.CLIENT_GREETING, Pattern.compile("^HI, I AM ([a-zA-Z0-9-]+)$"),
-            Command.TERMINATION, Pattern.compile("^BYE MATE!$"),
+            Command.GREET_CLIENT, Pattern.compile("^HI, I AM ([a-zA-Z0-9-]+)$"),
+            Command.TERMINATE, Pattern.compile("^BYE MATE!$"),
             Command.ADD_NODE, Pattern.compile("^ADD NODE ([a-zA-Z0-9-]+)$"),
             Command.ADD_EDGE, Pattern.compile("^ADD EDGE ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+) ([0-9]+)$"),
             Command.REMOVE_NODE, Pattern.compile("^REMOVE NODE ([a-zA-Z0-9-]+)$"),
             Command.REMOVE_EDGE, Pattern.compile("^REMOVE EDGE ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+)$"),
-            Command.SHORTEST_PATH, Pattern.compile("^SHORTEST PATH ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+)$")
+            Command.FIND_SHORTEST_PATH, Pattern.compile("^SHORTEST PATH ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+)$")
     );
 
 

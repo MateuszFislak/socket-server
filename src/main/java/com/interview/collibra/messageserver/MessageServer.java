@@ -1,19 +1,22 @@
 package com.interview.collibra.messageserver;
 
+import com.interview.collibra.messageserver.command.*;
 import com.interview.collibra.messageserver.model.ClientSession;
-import com.interview.collibra.messageserver.model.Command;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.text.MessageFormat;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.concurrent.*;
 
 @Service
@@ -21,7 +24,6 @@ import java.util.concurrent.*;
 public class MessageServer {
 
     public static final int SESSION_TIMEOUT_SECONDS = 30;
-    private final MessagePrinter messagePrinter;
     private final CommandRecognizer commandRecognizer;
     private final AsyncTaskExecutor asyncTaskExecutor;
     private final GraphService graphService;
@@ -29,12 +31,27 @@ public class MessageServer {
     private ClientSession clientSession;
     private String clientName;
 
-    public MessageServer(MessagePrinter messagePrinter,
-                         CommandRecognizer commandRecognizer, @Qualifier("messageServerTaskExecutor") AsyncTaskExecutor asyncTaskExecutor, GraphService graphService) {
-        this.messagePrinter = messagePrinter;
+    private Map<Command, CommandHandler> handlers;
+
+    public MessageServer(CommandRecognizer commandRecognizer,
+                         @Qualifier("messageServerTaskExecutor") AsyncTaskExecutor asyncTaskExecutor,
+                         GraphService graphService) {
         this.commandRecognizer = commandRecognizer;
         this.asyncTaskExecutor = asyncTaskExecutor;
         this.graphService = graphService;
+    }
+
+    @PostConstruct
+    public void initializeHandlersMap() {
+        handlers = Map.of(
+                Command.GREET_CLIENT, new GreetClientCommandHandler(this::sendMessage),
+                Command.ADD_NODE, new AddNodeCommandHandler(this::sendMessage, graphService),
+                Command.ADD_EDGE, new AddEdgeCommandHandler(this::sendMessage, graphService),
+                Command.REMOVE_NODE, new RemoveNodeCommandHandler(this::sendMessage, graphService),
+                Command.REMOVE_EDGE, new RemoveEdgeCommandHandler(this::sendMessage, graphService),
+                Command.FIND_SHORTEST_PATH, new FindShortestPathCommandHandler(this::sendMessage, graphService),
+                Command.UNKNOWN, new UnknownCommandHandler(this::sendMessage)
+        );
     }
 
     public void start() throws IOException {
@@ -44,7 +61,7 @@ public class MessageServer {
 
     public void stop() throws IOException {
         closeClient();
-        closeServer();
+        serverSocket.close();
     }
 
     private void beginClientSessionAsync() {
@@ -64,10 +81,8 @@ public class MessageServer {
     private void initClientSession() throws IOException {
         Socket clientSocket = serverSocket.accept();
         clientSession = new ClientSession(clientSocket);
-        final String message = messagePrinter.getInitialMessage(clientSession.getId());
-        sendMessage(message);
+        introduceYourself();
     }
-
 
     private void listenForMessages() throws ExecutionException, InterruptedException, TimeoutException {
         while (clientSession != null) {
@@ -81,81 +96,19 @@ public class MessageServer {
         final Pair<Command, List<String>> commandWithParams = commandRecognizer.recognize(message);
         final Command command = commandWithParams.getLeft();
         final List<String> params = commandWithParams.getRight();
-
-        switch (command) {
-            case CLIENT_GREETING: {
-                clientName = params.get(0);
-                String responseMessage = messagePrinter.getGreetingMessage(clientName);
-                sendMessage(responseMessage);
-                break;
-            }
-            case ADD_NODE: {
-                final String nodeName = params.get(0);
-                final boolean success = graphService.addNode(nodeName);
-                if (success) {
-                    sendMessage(messagePrinter.NODE_ADDED);
-                } else {
-                    sendMessage(messagePrinter.NODE_EXISTS);
-                }
-                break;
-            }
-            case ADD_EDGE: {
-                final String firstEdge = params.get(0);
-                final String secondEdge = params.get(1);
-                final Integer weight = Integer.valueOf(params.get(2));
-                final boolean success = graphService.addEdge(firstEdge, secondEdge, weight);
-                if (success) {
-                    sendMessage(messagePrinter.EDGE_ADDED);
-                } else {
-                    sendMessage(messagePrinter.NODE_NOT_FOUND);
-                }
-                break;
-            }
-            case REMOVE_NODE: {
-                final String nodeName = params.get(0);
-                final boolean success = graphService.removeNode(nodeName);
-                if (success) {
-                    sendMessage(messagePrinter.NODE_REMOVED);
-                } else {
-                    sendMessage(messagePrinter.NODE_NOT_FOUND);
-                }
-                break;
-            }
-            case REMOVE_EDGE: {
-                final String firstEdge = params.get(0);
-                final String secondEdge = params.get(1);
-                final boolean success = graphService.removeEdge(firstEdge, secondEdge);
-                if (success) {
-                    sendMessage(messagePrinter.EDGE_REMOVED);
-                } else {
-                    sendMessage(messagePrinter.NODE_NOT_FOUND);
-                }
-                break;
-            }
-            case SHORTEST_PATH: {
-                final String firstNode = params.get(0);
-                final String secondNode = params.get(1);
-                final Optional<Integer> shortestPath = graphService.findShortestPath(firstNode, secondNode);
-                shortestPath.map(Object::toString).ifPresentOrElse(this::sendMessage, () -> {
-                    sendMessage(messagePrinter.NODE_NOT_FOUND);
-                });
-                break;
-            }
-            case UNKNOWN: {
-                sendMessage(messagePrinter.UNRECOGNIZABLE_COMMAND_MESSAGE);
-                break;
-            }
-            case TERMINATION: {
-                terminateClientSession();
-                beginClientSessionAsync();
-                break;
-            }
+        if (command == Command.GREET_CLIENT) {
+            clientName = params.get(0);
         }
+        if (command == Command.TERMINATE) {
+            terminateClientSession();
+            beginClientSessionAsync();
+            return;
+        }
+        handlers.get(command).handle(params);
     }
 
     private void terminateClientSession() {
-        String responseMessage = messagePrinter.getFarewellMessage(clientName, clientSession.getStartTime());
-        sendMessage(responseMessage);
+        sendFarewell();
         closeClient();
     }
 
@@ -174,13 +127,19 @@ public class MessageServer {
         clientName = null;
     }
 
-    private void closeServer() throws IOException {
-        serverSocket.close();
-    }
-
     private String runWithTimeout(Callable<String> task, Duration timeout) throws ExecutionException, InterruptedException, TimeoutException {
         final Future<String> futureResult = asyncTaskExecutor.submit(task);
         return futureResult.get(timeout.toSeconds(), TimeUnit.SECONDS);
     }
 
+    private void introduceYourself() {
+        final String message = MessageFormat.format("HI, I AM {0}", clientSession.getId());
+        sendMessage(message);
+    }
+
+    private void sendFarewell() {
+        final Duration duration = Duration.between(clientSession.getStartTime(), Instant.now());
+        final String message = MessageFormat.format("BYE {0}, WE SPOKE FOR {1} MS", clientName, String.valueOf(duration.toMillis()));
+        sendMessage(message);
+    }
 }
