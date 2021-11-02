@@ -20,7 +20,8 @@ public class CommandRecognizer {
             Command.ADD_NODE, Pattern.compile("^ADD NODE ([a-zA-Z0-9-]+)$"),
             Command.ADD_EDGE, Pattern.compile("^ADD EDGE ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+) ([0-9]+)$"),
             Command.REMOVE_NODE, Pattern.compile("^REMOVE NODE ([a-zA-Z0-9-]+)$"),
-            Command.REMOVE_EDGE, Pattern.compile("^REMOVE EDGE ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+)$")
+            Command.REMOVE_EDGE, Pattern.compile("^REMOVE EDGE ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+)$"),
+            Command.SHORTEST_PATH, Pattern.compile("^SHORTEST PATH ([a-zA-Z0-9-]+) ([a-zA-Z0-9-]+)$")
     );
 
 
@@ -45,8 +46,4 @@ public class CommandRecognizer {
                 .findFirst();
     }
 
-    public static void main(String[] args) {
-        final Matcher matcher = Pattern.compile("^HI, I AM ([a-zA-Z0-9-]+)$").matcher("HI, I AM Mateusz");
-        System.out.println(matcher.group(1));
-    }
 }

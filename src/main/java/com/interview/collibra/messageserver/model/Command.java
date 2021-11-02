@@ -7,5 +7,6 @@ public enum Command {
     ADD_EDGE,
     REMOVE_NODE,
     REMOVE_EDGE,
-    UNKNOWN
+    UNKNOWN,
+    SHORTEST_PATH
 }

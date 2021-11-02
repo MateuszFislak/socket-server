@@ -31,6 +31,6 @@ public class MessagePrinter {
 
     public String getFarewellMessage(String recipient, Instant conversationStart) {
         final Duration duration = Duration.between(conversationStart, Instant.now());
-        return MessageFormat.format(FAREWELL_FORMAT_PATTERN, recipient, duration.toMillis());
+        return MessageFormat.format(FAREWELL_FORMAT_PATTERN, recipient, String.valueOf(duration.toMillis()));
     }
 }

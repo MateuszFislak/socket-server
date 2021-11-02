@@ -13,6 +13,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.*;
 
 @Service
@@ -93,7 +94,7 @@ public class MessageServer {
                 final boolean success = graphService.addNode(nodeName);
                 if (success) {
                     sendMessage(messagePrinter.NODE_ADDED);
-                }else{
+                } else {
                     sendMessage(messagePrinter.NODE_EXISTS);
                 }
                 break;
@@ -105,7 +106,7 @@ public class MessageServer {
                 final boolean success = graphService.addEdge(firstEdge, secondEdge, weight);
                 if (success) {
                     sendMessage(messagePrinter.EDGE_ADDED);
-                }else{
+                } else {
                     sendMessage(messagePrinter.NODE_NOT_FOUND);
                 }
                 break;
@@ -115,7 +116,7 @@ public class MessageServer {
                 final boolean success = graphService.removeNode(nodeName);
                 if (success) {
                     sendMessage(messagePrinter.NODE_REMOVED);
-                }else{
+                } else {
                     sendMessage(messagePrinter.NODE_NOT_FOUND);
                 }
                 break;
@@ -126,9 +127,18 @@ public class MessageServer {
                 final boolean success = graphService.removeEdge(firstEdge, secondEdge);
                 if (success) {
                     sendMessage(messagePrinter.EDGE_REMOVED);
-                }else{
+                } else {
                     sendMessage(messagePrinter.NODE_NOT_FOUND);
                 }
+                break;
+            }
+            case SHORTEST_PATH: {
+                final String firstNode = params.get(0);
+                final String secondNode = params.get(1);
+                final Optional<Integer> shortestPath = graphService.findShortestPath(firstNode, secondNode);
+                shortestPath.map(Object::toString).ifPresentOrElse(this::sendMessage, () -> {
+                    sendMessage(messagePrinter.NODE_NOT_FOUND);
+                });
                 break;
             }
             case UNKNOWN: {
